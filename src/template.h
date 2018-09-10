@@ -76,37 +76,6 @@ extern "C"
 
 #include "game.h"
 
-// Port Windows stuff to linux
-// If you use MacOS you probably should port these stuff to native MacOS calls.
-// Probably...
-#ifdef __linux__
-
-// GetTickCount
-#include <sys/times.h>
-long GetTickCount()
-{
-    tms tm;
-    return times(&tm);
-}
-
-
-// GetAsyncKeyState
-#include <linux/input.h>
-#define VK_ESCAPE	0x1B
-#define VK_LEFT		0x25
-#define VK_UP		0x26
-#define VK_RIGHT	0x27
-#define VK_DOWN		0x28
-short GetAsyncKeyState(int key) {
-	//TODO: might be nice to make this work
-	return 0;
-}
-
-// __forceinline
-#define __forceinline __attribute__((always_inline))
-
-#endif
-
 using namespace Tmpl8;				// to use template classes
 using namespace glm;
 //using namespace std;				// to use stl vectors
@@ -427,7 +396,7 @@ public:
 	float dot(const vec3& operand) const { return x * operand.x + y * operand.y + z * operand.z; }
 };
 
-class vec4
+/*class vec4
 {
 public:
 	union { struct { float x, y, z, w; }; struct { vec3 xyz; float w2; }; float cell[4]; };
@@ -451,15 +420,15 @@ public:
 	void normalize() { float r = 1.0f / length(); x *= r; y *= r; z *= r; w *= r; }
 	static vec4 normalize(vec4 v) { return v.normalized(); }
 	float dot(const vec4& operand) const { return x * operand.x + y * operand.y + z * operand.z + w * operand.w; }
-};
+};*/
 
 vec3 normalize(const vec3& v);
 vec3 cross(const vec3& a, const vec3& b);
 float dot(const vec3& a, const vec3& b);
 vec3 operator * (const float& s, const vec3& v);
 vec3 operator * (const vec3& v, const float& s);
-vec4 operator * (const float& s, const vec4& v);
-vec4 operator * (const vec4& v, const float& s);
+//vec4 operator * (const float& s, const vec4& v);
+//vec4 operator * (const vec4& v, const float& s);
 
 }; // namespace Tmpl8
 

@@ -4,6 +4,45 @@
 #define BALLRADIUS		1.7f
 #define SPRITESIZE		15
 
+// Port Windows stuff to linux
+// If you use MacOS you probably should port these stuff to native MacOS calls.
+// Probably...
+#ifdef __linux__
+
+#ifndef LinuxGetTickCount
+#define LinuxGetTickCount
+// GetTickCount
+#include <sys/times.h>
+long GetTickCount()
+{
+    tms tm;
+    return times(&tm);
+}
+#endif
+
+#ifndef LinuxInput
+#define LinuxInput
+// GetAsyncKeyState
+#include <linux/input.h>
+#define VK_ESCAPE	0x1B
+#define VK_LEFT		0x25
+#define VK_UP		0x26
+#define VK_RIGHT	0x27
+#define VK_DOWN		0x28
+short GetAsyncKeyState(int key) {
+	//TODO: might be nice to make this work
+	return 0;
+}
+#endif
+
+#ifndef LinuxForceLine
+#define LinuxForceLine
+// __forceinline
+#define __forceinline __attribute__((always_inline))
+#endif
+
+#endif
+
 using namespace Tmpl8;
 
 // calculate accurate square roots of four scalars in an __m128
@@ -35,7 +74,9 @@ Sprite* sprite[4] = {
 	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1),
 	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1) };
 
-static long ballCount[256], index[256];
+static long ballCount[256];
+static long index[256];
+
 int loffs1[SPRITESIZE * SPRITESIZE], loffs2[SPRITESIZE * SPRITESIZE], scale[SPRITESIZE * SPRITESIZE];
 int col[4][SPRITESIZE * SPRITESIZE];
 
