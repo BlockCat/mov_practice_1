@@ -7,10 +7,8 @@
 // Port Windows stuff to linux
 // If you use MacOS you probably should port these stuff to native MacOS calls.
 // Probably...
+#ifndef _WIN32
 #ifdef __linux__
-
-#ifndef LinuxGetTickCount
-#define LinuxGetTickCount
 // GetTickCount
 #include <sys/times.h>
 long GetTickCount()
@@ -18,10 +16,20 @@ long GetTickCount()
     tms tm;	
     return times(&tm);
 }
+#else
+#include <mach/mach.h>
+#include <mach/mach_time.h>
+long GetTickCount() 
+{
+	return UnsignedWideToUInt64(AbsoluteToNanoseconds(UpTime())) / 1000000;
+}
 #endif
+#endif // !_WIN32
+// If not windows, depend on SDL methods, 
+#ifndef _WIN32
 
-#ifndef LinuxInput
-#define LinuxInput
+// __forceinline
+#define __forceinline __attribute__((always_inline))
 // GetAsyncKeyState
 #include <linux/input.h>
 #define VK_ESCAPE	SDL_SCANCODE_ESCAPE
@@ -33,15 +41,9 @@ short GetAsyncKeyState(int key) {
 	const Uint8* _state = SDL_GetKeyboardState(NULL);
 	return _state[key];
 }
-#endif
 
-#ifndef LinuxForceLine
-#define LinuxForceLine
-// __forceinline
-#define __forceinline __attribute__((always_inline))
-#endif
+#endif // !__Win
 
-#endif
 
 using namespace Tmpl8;
 
