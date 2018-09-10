@@ -5,7 +5,7 @@
 #pragma once
 
 #define GLM_FORCE_RADIANS
-#define GLM_SWIZZLE
+#define GLM_FORCE_SWIZZLE
 
 
 #ifndef _WIN32
@@ -75,6 +75,37 @@ extern "C"
 //#include <immintrin.h>
 
 #include "game.h"
+
+// Port Windows stuff to linux
+// If you use MacOS you probably should port these stuff to native MacOS calls.
+// Probably...
+#ifdef __linux__
+
+// GetTickCount
+#include <sys/times.h>
+long GetTickCount()
+{
+    tms tm;
+    return times(&tm);
+}
+
+
+// GetAsyncKeyState
+#include <linux/input.h>
+#define VK_ESCAPE	0x1B
+#define VK_LEFT		0x25
+#define VK_UP		0x26
+#define VK_RIGHT	0x27
+#define VK_DOWN		0x28
+short GetAsyncKeyState(int key) {
+	//TODO: might be nice to make this work
+	return 0;
+}
+
+// __forceinline
+#define __forceinline __attribute__((always_inline))
+
+#endif
 
 using namespace Tmpl8;				// to use template classes
 using namespace glm;
