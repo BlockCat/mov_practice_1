@@ -15,7 +15,7 @@
 #include <sys/times.h>
 long GetTickCount()
 {
-    tms tm;
+    tms tm;	
     return times(&tm);
 }
 #endif
@@ -24,14 +24,14 @@ long GetTickCount()
 #define LinuxInput
 // GetAsyncKeyState
 #include <linux/input.h>
-#define VK_ESCAPE	0x1B
-#define VK_LEFT		0x25
-#define VK_UP		0x26
-#define VK_RIGHT	0x27
-#define VK_DOWN		0x28
+#define VK_ESCAPE	SDL_SCANCODE_ESCAPE
+#define VK_LEFT		SDL_SCANCODE_LEFT
+#define VK_UP		SDL_SCANCODE_UP
+#define VK_RIGHT	SDL_SCANCODE_RIGHT
+#define VK_DOWN		SDL_SCANCODE_DOWN
 short GetAsyncKeyState(int key) {
-	//TODO: might be nice to make this work
-	return 0;
+	const Uint8* _state = SDL_GetKeyboardState(NULL);
+	return _state[key];
 }
 #endif
 
@@ -74,8 +74,7 @@ Sprite* sprite[4] = {
 	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1),
 	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1) };
 
-static long ballCount[256];
-static long index[256];
+static long ballCount[256], _index[256];
 
 int loffs1[SPRITESIZE * SPRITESIZE], loffs2[SPRITESIZE * SPRITESIZE], scale[SPRITESIZE * SPRITESIZE];
 int col[4][SPRITESIZE * SPRITESIZE];
@@ -133,11 +132,11 @@ inline void radix0(const unsigned long N, const long *source, long *dest)
 	unsigned int i;
 	memset(ballCount, 0, sizeof(ballCount));
 	for (i = 0; i < N; i++) ballCount[source[i << 1] >> 24]++;
-	index[0] = 0;
-	for (i = 1; i < 256; i++) index[i] = index[i - 1] + ballCount[i - 1];
+	_index[0] = 0;
+	for (i = 1; i < 256; i++) _index[i] = _index[i - 1] + ballCount[i - 1];
 	for (i = 0; i < N; i++)
 	{
-		const unsigned int idx = index[source[i << 1] >> 24]++ << 1;
+		const unsigned int idx = _index[source[i << 1] >> 24]++ << 1;
 		dest[idx] = source[i << 1];
 		dest[idx + 1] = source[(i << 1) + 1];
 	}
@@ -147,12 +146,15 @@ inline void radix1(const unsigned long N, const long *source, long *dest)
 {
 	unsigned int i;
 	memset(ballCount, 0, sizeof(ballCount));
+	// For every long (ball_id I think) group it in one of 256 bins
 	for (i = 0; i < N; i++) ballCount[source[i << 1] & 255]++;
-	index[0] = 0;
-	for (i = 1; i < 256; i++) index[i] = index[i - 1] + ballCount[i - 1];
+	_index[0] = 0;
+	for (i = 1; i < 256; i++) _index[i] = _index[i - 1] + ballCount[i - 1];
 	for (i = 0; i < N; i++)
 	{
-		const unsigned int idx = index[source[i << 1] & 255]++ << 1;
+	    //int ddd =  _index[source[i << 1] & 255] << 1;
+		const unsigned int idx = _index[source[i << 1] & 255]++ << 1;
+
 		dest[idx] = source[i << 1];
 		dest[idx + 1] = source[(i << 1) + 1];
 	}
@@ -163,11 +165,11 @@ inline void radix8(const int bit, const unsigned long N, const long *source, lon
 	unsigned int i;
 	memset(ballCount, 0, sizeof(ballCount));
 	for (i = 0; i < N; i++) ballCount[(source[i << 1] >> bit) & 255]++;
-	index[0] = 0;
-	for (i = 1; i < 256; i++) index[i] = index[i - 1] + ballCount[i - 1];
+	_index[0] = 0;
+	for (i = 1; i < 256; i++) _index[i] = _index[i - 1] + ballCount[i - 1];
 	for (i = 0; i < N; i++)
 	{
-		const unsigned int idx = index[(source[i << 1] >> bit) & 255]++ << 1;
+		const unsigned int idx = _index[(source[i << 1] >> bit) & 255]++ << 1;
 		dest[idx] = source[i << 1];
 		dest[idx + 1] = source[(i << 1) + 1];
 	}
@@ -177,8 +179,8 @@ unsigned int source[PARTICLES * 2], temp[PARTICLES * 2];
 
 void Sort()
 {
-	radix1(PARTICLES, (long*)source, (long*)temp);
-	radix8(8, PARTICLES, (long*)temp, (long*)source);
+	//radix1(PARTICLES, (long*)source, (long*)temp);
+	//radix8(8, PARTICLES, (long*)temp, (long*)source);
 }
 
 class TreeNode
