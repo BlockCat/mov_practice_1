@@ -26,8 +26,10 @@ target_link_libraries(raytracer ${FREEIMAGE_LIBRARIES})
 # AVX2 support (Intel Haswell and higher)
 #set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} "-mavx2")
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wwrite-strings -msse4.1")
+#include "surface.h"
 set_target_properties(raytracer PROPERTIES
-    CXX_STANDARD 14# Require C++ 14
+    CXX_STANDARD 17# Require C++ 14
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
 )

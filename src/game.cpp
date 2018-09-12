@@ -1,8 +1,6 @@
 #include "template.h"
-
-#define PARTICLES		18000
-#define BALLRADIUS		1.7f
-#define SPRITESIZE		15
+#include "surface.h"
+#include "game.h"
 
 // Port Windows stuff to linux
 // If you use MacOS you probably should port these stuff to native MacOS calls.
@@ -45,349 +43,337 @@ short GetAsyncKeyState(int key) {
 #endif // !__Win
 
 
+#define LINES		1024
+#define LINEFILE	"lines1024.dat"
+#define ITERATIONS	16
+
 using namespace Tmpl8;
 
-// calculate accurate square roots of four scalars in an __m128
-static __forceinline float fastsqrtf(float v)
+int lx1[LINES], ly1[LINES], lx2[LINES], ly2[LINES];			// lines: start and end coordinates
+int x1_, y1_, x2_, y2_;										// room for storing line backup
+int fitness = 0xfffffff;									// similarity to reference image
+int lidx = 0;												// current line to be mutated
+float peak = 0;												// peak line rendering performance
+Tmpl8::Surface* reference, *backup;								// surfaces
+int* ref8;													// grayscale image for evaluation
+Tmpl8::Timer tm;													// stopwatch
+
+// -----------------------------------------------------------
+// Mutate
+// Randomly modify or replace one line.
+// -----------------------------------------------------------
+void MutateLine( int i )
 {
-	const __m128 v1 = _mm_load_ss(&v);
-	const __m128 v2 = _mm_rsqrt_ss(v1);
-	float final;
-	_mm_store_ss(&final, _mm_mul_ps(v1, v2));
-	return final;
-}
-
-class TreeNode;
-
-Tmpl8::vec3 p[PARTICLES], l[PARTICLES], pt[PARTICLES];
-float pr[PARTICLES];
-int pidx[PARTICLES], pleft[PARTICLES], pright[PARTICLES];
-int sx[PARTICLES], sy[PARTICLES];
-Tmpl8::vec3 gmin(-115, -55, -45), gmax(115, 2460, 45);
-Surface back(SCRWIDTH, SCRHEIGHT);
-Surface ikea("assets/back.png");
-TreeNode* node, *root;
-int nodeidx;
-int interlace = 0;
-float r = 270, r2 = 270;
-Sprite* sprite[4] = {
-	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1),
-	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1),
-	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1),
-	new Sprite(new Surface(SPRITESIZE, SPRITESIZE), 1) };
-
-static long ballCount[256], _index[256];
-
-int loffs1[SPRITESIZE * SPRITESIZE], loffs2[SPRITESIZE * SPRITESIZE], scale[SPRITESIZE * SPRITESIZE];
-int col[4][SPRITESIZE * SPRITESIZE];
-
-void InitLens()
-{
-	Pixel* p1 = sprite[0]->GetSurface()->GetBuffer();
-	Pixel* p2 = sprite[1]->GetSurface()->GetBuffer();
-	Pixel* p3 = sprite[2]->GetSurface()->GetBuffer();
-	Pixel* p4 = sprite[3]->GetSurface()->GetBuffer();
-	memset(p1, 0, SPRITESIZE * SPRITESIZE * 4);
-	memset(p2, 0, SPRITESIZE * SPRITESIZE * 4);
-	memset(p3, 0, SPRITESIZE * SPRITESIZE * 4);
-	memset(p4, 0, SPRITESIZE * SPRITESIZE * 4);
-	for (int y = 0; y < SPRITESIZE; y++) for (int x = 0; x < SPRITESIZE; x++)
+	// backup the line before modifying it
+	x1_ = lx1[i], y1_ = ly1[i];
+	x2_ = lx2[i], y2_ = ly2[i];
+	do
 	{
-		float dx = (float)x - (SPRITESIZE / 2);
-		float dy = (float)y - (SPRITESIZE / 2);
-		float l = sqrtf(dx * dx + dy * dy);
-		float d = (SPRITESIZE / 2) - l;		
-		//d = max(0, d);
-		if (d < 0) d = 0;
-		if (d > 0)
+		if (rand() & 1)
 		{
-			dx /= l;
-			dy /= l;
-			d /= (SPRITESIZE / 2);
-			l /= (SPRITESIZE / 2);
-			int x1 = SPRITESIZE / 2 + dx * (SPRITESIZE / 2) * cosf(d * PI / 2);
-			int y1 = SPRITESIZE / 2 + dy * (SPRITESIZE / 2) * cosf(d * PI / 2);
-			int x2 = SPRITESIZE / 2 + dx * (SPRITESIZE / 2) * (1 - sinf(d * PI / 2));
-			int y2 = SPRITESIZE / 2 + dy * (SPRITESIZE / 2) * (1 - sinf(d * PI / 2));
-			loffs1[x + y * SPRITESIZE] = x1 + y1 * SCRWIDTH;
-			loffs2[x + y * SPRITESIZE] = x2 + y2 * SCRWIDTH;
-			int scale = 12 + (int)(20 * tanf(d * d * 0.8f));
-			col[0][x + y * SPRITESIZE] = p1[x + y * SPRITESIZE] = ScaleColor(0xff0000, scale);
-			col[1][x + y * SPRITESIZE] = p2[x + y * SPRITESIZE] = ScaleColor(0x00ff00, scale);
-			col[2][x + y * SPRITESIZE] = p3[x + y * SPRITESIZE] = ScaleColor(0x0000ff, scale);
-			col[3][x + y * SPRITESIZE] = p4[x + y * SPRITESIZE] = ScaleColor(0xffffff, scale);
+			// small mutation (50% probability)
+			lx1[i] += IRand( 6 ) - 3, ly1[i] += IRand( 6 ) - 3;
+			lx2[i] += IRand( 6 ) - 3, ly2[i] += IRand( 6 ) - 3;
+			// ensure the line stays on the screen
+			lx1[i] = min( SCRWIDTH - 1, max( 0, lx1[i] ) );
+			lx2[i] = min( SCRWIDTH - 1, max( 0, lx2[i] ) );
+			ly1[i] = min( SCRHEIGHT - 1, max( 0, ly1[i] ) );
+			ly2[i] = min( SCRHEIGHT - 1, max( 0, ly2[i] ) );
 		}
 		else
 		{
-			loffs1[x + y * SPRITESIZE] = 0;
-			loffs2[x + y * SPRITESIZE] = 0;
+			// new line (50% probability)
+			lx1[i] = IRand( SCRWIDTH ), lx2[i] = IRand( SCRWIDTH );
+			ly1[i] = IRand( SCRHEIGHT ), ly2[i] = IRand( SCRHEIGHT );
 		}
-	}
-	sprite[0]->InitializeStartData();
-	sprite[1]->InitializeStartData();
-	sprite[2]->InitializeStartData();
-	sprite[3]->InitializeStartData();
+	} while ((abs( lx1[i] - lx2[i] ) < 3) || (abs( ly1[i] - ly2[i] ) < 3));
 }
 
-inline void radix0(const unsigned long N, const long *source, long *dest)
+void UndoMutation( int i )
 {
-	unsigned int i;
-	memset(ballCount, 0, sizeof(ballCount));
-	for (i = 0; i < N; i++) ballCount[source[i << 1] >> 24]++;
-	_index[0] = 0;
-	for (i = 1; i < 256; i++) _index[i] = _index[i - 1] + ballCount[i - 1];
-	for (i = 0; i < N; i++)
+	// restore line i to the backuped state
+	lx1[i] = x1_, ly1[i] = y1_;
+	lx2[i] = x2_, ly2[i] = y2_;
+}
+
+// -----------------------------------------------------------
+// DrawWuLine
+// Anti-aliased line rendering.
+// Straight from: 
+// https://www.codeproject.com/Articles/13360/Antialiasing-Wu-Algorithm
+// -----------------------------------------------------------
+void DrawWuLine( Surface *screen, int X0, int Y0, int X1, int Y1, uint clrLine )
+{
+    /* Make sure the line runs top to bottom */
+    if (Y0 > Y1)
+    {
+        int Temp = Y0; Y0 = Y1; Y1 = Temp;
+        Temp = X0; X0 = X1; X1 = Temp;
+    }
+    
+    /* Draw the initial pixel, which is always exactly intersected by
+    the line and so needs no weighting */
+    screen->Plot( X0, Y0, clrLine );
+    
+    int XDir, DeltaX = X1 - X0;
+    if( DeltaX >= 0 )
+    {
+        XDir = 1;
+    }
+    else
+    {
+        XDir   = -1;
+        DeltaX = 0 - DeltaX; /* make DeltaX positive */
+    }
+    
+    /* Special-case horizontal, vertical, and diagonal lines, which
+    require no weighting because they go right through the center of
+    every pixel */
+    int DeltaY = Y1 - Y0;
+    if (DeltaY == 0)
+    {
+        /* Horizontal line */
+        while (DeltaX-- != 0)
+        {
+            X0 += XDir;
+            screen->Plot( X0, Y0, clrLine );
+        }
+        return;
+    }
+    if (DeltaX == 0)
+    {
+        /* Vertical line */
+        do
+        {
+            Y0++;
+            screen->Plot( X0, Y0, clrLine );
+        } while (--DeltaY != 0);
+        return;
+    }
+    
+    if (DeltaX == DeltaY)
+    {
+        /* Diagonal line */
+        do
+        {
+            X0 += XDir;
+            Y0++;
+            screen->Plot( X0, Y0, clrLine );
+        } while (--DeltaY != 0);
+        return;
+    }
+    
+    unsigned short ErrorAdj;
+    unsigned short ErrorAccTemp, Weighting;
+    
+    /* Line is not horizontal, diagonal, or vertical */
+    unsigned short ErrorAcc = 0;  /* initialize the line error accumulator to 0 */
+    
+    BYTE rl = GetRValue( clrLine );
+    BYTE gl = GetGValue( clrLine );
+    BYTE bl = GetBValue( clrLine );
+    double grayl = rl * 0.299 + gl * 0.587 + bl * 0.114;
+    
+    /* Is this an X-major or Y-major line? */
+    if (DeltaY > DeltaX)
+    {
+    /* Y-major line; calculate 16-bit fixed-point fractional part of a
+    pixel that X advances each time Y advances 1 pixel, truncating the
+        result so that we won't overrun the endpoint along the X axis */
+        ErrorAdj = ((unsigned long) DeltaX << 16) / (unsigned long) DeltaY;
+        /* Draw all pixels other than the first and last */
+        while (--DeltaY) {
+            ErrorAccTemp = ErrorAcc;   /* remember currrent accumulated error */
+            ErrorAcc += ErrorAdj;      /* calculate error for next pixel */
+            if (ErrorAcc <= ErrorAccTemp) {
+                /* The error accumulator turned over, so advance the X coord */
+                X0 += XDir;
+            }
+            Y0++; /* Y-major, so always advance Y */
+                  /* The IntensityBits most significant bits of ErrorAcc give us the
+                  intensity weighting for this pixel, and the complement of the
+            weighting for the paired pixel */
+            Weighting = ErrorAcc >> 8;
+            
+            COLORREF clrBackGround = screen->GetBuffer()[X0 + Y0 * SCRWIDTH];
+            BYTE rb = GetRValue( clrBackGround );
+            BYTE gb = GetGValue( clrBackGround );
+            BYTE bb = GetBValue( clrBackGround );
+            double grayb = rb * 0.299 + gb * 0.587 + bb * 0.114;
+            
+            BYTE rr = ( rb > rl ? ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( rb - rl ) + rl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( rl - rb ) + rb ) ) );
+            BYTE gr = ( gb > gl ? ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( gb - gl ) + gl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( gl - gb ) + gb ) ) );
+            BYTE br = ( bb > bl ? ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( bb - bl ) + bl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( bl - bb ) + bb ) ) );
+            screen->Plot( X0, Y0, RGB( rr, gr, br ) );
+            
+            clrBackGround = screen->GetBuffer()[X0 + XDir + Y0 * SCRWIDTH];
+            rb = GetRValue( clrBackGround );
+            gb = GetGValue( clrBackGround );
+            bb = GetBValue( clrBackGround );
+            grayb = rb * 0.299 + gb * 0.587 + bb * 0.114;
+            
+            rr = ( rb > rl ? ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( rb - rl ) + rl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( rl - rb ) + rb ) ) );
+            gr = ( gb > gl ? ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( gb - gl ) + gl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( gl - gb ) + gb ) ) );
+            br = ( bb > bl ? ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( bb - bl ) + bl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( bl - bb ) + bb ) ) );
+            screen->Plot( X0 + XDir, Y0, RGB( rr, gr, br ) );
+        }
+        /* Draw the final pixel, which is always exactly intersected by the line
+        and so needs no weighting */
+        screen->Plot( X1, Y1, clrLine );
+        return;
+    }
+    /* It's an X-major line; calculate 16-bit fixed-point fractional part of a
+    pixel that Y advances each time X advances 1 pixel, truncating the
+    result to avoid overrunning the endpoint along the X axis */
+    ErrorAdj = ((unsigned long) DeltaY << 16) / (unsigned long) DeltaX;
+    /* Draw all pixels other than the first and last */
+    while (--DeltaX) {
+        ErrorAccTemp = ErrorAcc;   /* remember currrent accumulated error */
+        ErrorAcc += ErrorAdj;      /* calculate error for next pixel */
+        if (ErrorAcc <= ErrorAccTemp) {
+            /* The error accumulator turned over, so advance the Y coord */
+            Y0++;
+        }
+        X0 += XDir; /* X-major, so always advance X */
+                    /* The IntensityBits most significant bits of ErrorAcc give us the
+                    intensity weighting for this pixel, and the complement of the
+        weighting for the paired pixel */
+        Weighting = ErrorAcc >> 8;
+        
+        COLORREF clrBackGround = screen->GetBuffer()[X0 + Y0 * SCRWIDTH];
+        BYTE rb = GetRValue( clrBackGround );
+        BYTE gb = GetGValue( clrBackGround );
+        BYTE bb = GetBValue( clrBackGround );
+        double grayb = rb * 0.299 + gb * 0.587 + bb * 0.114;
+        
+        BYTE rr = ( rb > rl ? ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( rb - rl ) + rl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( rl - rb ) + rb ) ) );
+        BYTE gr = ( gb > gl ? ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( gb - gl ) + gl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( gl - gb ) + gb ) ) );
+        BYTE br = ( bb > bl ? ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( bb - bl ) + bl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?Weighting:(Weighting ^ 255)) ) / 255.0 * ( bl - bb ) + bb ) ) );
+        
+        screen->Plot( X0, Y0, RGB( rr, gr, br ) );
+        
+        clrBackGround = screen->GetBuffer()[X0 + (Y0 + 1 )* SCRWIDTH];
+        rb = GetRValue( clrBackGround );
+        gb = GetGValue( clrBackGround );
+        bb = GetBValue( clrBackGround );
+        grayb = rb * 0.299 + gb * 0.587 + bb * 0.114;
+        
+        rr = ( rb > rl ? ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( rb - rl ) + rl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( rl - rb ) + rb ) ) );
+        gr = ( gb > gl ? ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( gb - gl ) + gl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( gl - gb ) + gb ) ) );
+        br = ( bb > bl ? ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( bb - bl ) + bl ) ) : ( ( BYTE )( ( ( double )( grayl<grayb?(Weighting ^ 255):Weighting) ) / 255.0 * ( bl - bb ) + bb ) ) );
+        
+        screen->Plot( X0, Y0 + 1, RGB( rr, gr, br ) );
+    }
+    
+    /* Draw the final pixel, which is always exactly intersected by the line
+    and so needs no weighting */
+    screen->Plot( X1, Y1, clrLine );
+}
+
+// -----------------------------------------------------------
+// Fitness evaluation
+// Compare current generation against reference image.
+// -----------------------------------------------------------
+int Game::Evaluate()
+{
+	// compare to reference using SIMD magic. don't worry about it, it's fast.
+	Pixel* src = screen->GetBuffer();
+	const int quads = (SCRWIDTH * SCRHEIGHT) / 4;
+	__m128i* A4 = (__m128i*)src;
+	__m128i* B4 = (__m128i*)ref8;
+	union { __m128i diff4; int diff[4]; };
+	diff4 = _mm_set1_epi32( 0 );
+	union { __m128i mask4; int mask[4]; };
+	mask[0] = mask[1] = mask[2] = mask[3] = 255;
+	for (int i = 0; i < quads; i++)
 	{
-		const unsigned int idx = _index[source[i << 1] >> 24]++ << 1;
-		dest[idx] = source[i << 1];
-		dest[idx + 1] = source[(i << 1) + 1];
+		const __m128i d2 = _mm_abs_epi32( _mm_sub_epi32( _mm_and_si128( A4[i], mask4 ), B4[i] ) );
+		diff4 = _mm_add_epi32( diff4, _mm_srai_epi32( _mm_mul_epi32( d2, d2 ), 12 ) );
 	}
+	return diff[0] + diff[1] + diff[2] + diff[3];
 }
 
-inline void radix1(const unsigned long N, const long *source, long *dest)
-{
-	unsigned int i;
-	memset(ballCount, 0, sizeof(ballCount));
-	// For every long (ball_id I think) group it in one of 256 bins
-	for (i = 0; i < N; i++) ballCount[source[i << 1] & 255]++;
-	_index[0] = 0;
-	for (i = 1; i < 256; i++) _index[i] = _index[i - 1] + ballCount[i - 1];
-	for (i = 0; i < N; i++)
-	{
-	    //int ddd =  _index[source[i << 1] & 255] << 1;
-		const unsigned int idx = _index[source[i << 1] & 255]++ << 1;
-
-		dest[idx] = source[i << 1];
-		dest[idx + 1] = source[(i << 1) + 1];
-	}
-}
-
-inline void radix8(const int bit, const unsigned long N, const long *source, long *dest)
-{
-	unsigned int i;
-	memset(ballCount, 0, sizeof(ballCount));
-	for (i = 0; i < N; i++) ballCount[(source[i << 1] >> bit) & 255]++;
-	_index[0] = 0;
-	for (i = 1; i < 256; i++) _index[i] = _index[i - 1] + ballCount[i - 1];
-	for (i = 0; i < N; i++)
-	{
-		const unsigned int idx = _index[(source[i << 1] >> bit) & 255]++ << 1;
-		dest[idx] = source[i << 1];
-		dest[idx + 1] = source[(i << 1) + 1];
-	}
-}
-
-unsigned int source[PARTICLES * 2], temp[PARTICLES * 2];
-
-void Sort()
-{
-	//radix1(PARTICLES, (long*)source, (long*)temp);
-	//radix8(8, PARTICLES, (long*)temp, (long*)source);
-}
-
-class TreeNode
-{
-public:
-	void SubDiv(Tmpl8::vec3 bmin, Tmpl8::vec3 bmax)
-	{
-		Tmpl8::vec3 smin[64], smax[64];
-		TreeNode* snode[64];
-		smin[0] = bmin, smax[0] = bmax, snode[0] = this;
-		int stackptr = 1;
-		while (stackptr)
-		{
-			const Tmpl8::vec3 bmin = smin[--stackptr];
-			const Tmpl8::vec3 bmax = smax[stackptr];
-			TreeNode* curr = snode[stackptr];
-			int axis = 0;
-			const float ex[3] = { bmax.x - bmin.x, bmax.y - bmin.y, bmax.z - bmin.z };
-			if (ex[1] > ex[0]) axis = 1; else axis = 0;
-			if (ex[2] > ex[axis]) axis = 2;
-			curr->left = &node[nodeidx], nodeidx += 2;
-			int lcount = 0, rcount = 0;
-			const float splitpos = (bmax.cell[axis] + bmin.cell[axis]) * 0.5f;
-			for (int i = 0; i < curr->count; i++)
-			{
-				int idx = pidx[i + curr->first];
-				if (p[idx].cell[axis] < splitpos) pleft[lcount++] = pidx[i + curr->first]; else pright[rcount++] = pidx[i + curr->first];
-			}
-			memcpy(&pidx[curr->first], pleft, lcount * 4);
-			memcpy(&pidx[curr->first + lcount], pright, rcount * 4);
-			curr->left->first = curr->first;
-			curr->left->count = lcount;
-			curr->left->left = 0;
-			(curr->left + 1)->first = curr->first + lcount;
-			(curr->left + 1)->count = rcount;
-			(curr->left + 1)->left = 0;
-			Tmpl8::vec3 lmax = bmax, rmin = bmin;
-			lmax.cell[axis] = rmin.cell[axis] = splitpos;
-			if (lcount > 8) snode[stackptr] = curr->left, smin[stackptr] = bmin, smax[stackptr++] = lmax;
-			if (rcount > 8) snode[stackptr] = curr->left + 1, smin[stackptr] = rmin, smax[stackptr++] = bmax;
-			curr->axis = axis;
-			curr->splitpos = splitpos;
-		}
-	}
-	// data members
-	TreeNode* left;
-	union
-	{
-		float splitpos;
-		int first;
-	};
-	int count;
-	int axis;
-};
-
-void BuildTree()
-{
-	root = &node[0];
-	nodeidx = 1;
-	for (int i = 0; i < PARTICLES; i++) pidx[i] = i;
-	root->first = 0;
-	root->count = PARTICLES;
-	root->SubDiv(gmin, gmax);
-}
-
+// -----------------------------------------------------------
+// Application initialization
+// Load a previously saved generation, if available.
+// -----------------------------------------------------------
 void Game::Init()
 {
-	for (int i = 0; i < PARTICLES; i++)
+	for (int i = 0; i < LINES; i++) MutateLine( i );
+	FILE* f = fopen( LINEFILE, "rb" );
+	if (f)
 	{
-		p[i].x = l[i].x = Rand(15) - 100;
-		p[i].z = l[i].z = Rand(30) - 15;
-		p[i].y = l[i].y = 2400 - Rand(2014);
-		pr[i] = BALLRADIUS - Rand(0.1f);
-		sx[i] = 0, sy[i] = 0;
+		fread( lx1, 4, LINES, f );
+		fread( ly1, 4, LINES, f );
+		fread( lx2, 4, LINES, f );
+		fread( ly2, 4, LINES, f );
+		fclose( f );
 	}
-	back.Clear(0);
-	node = (TreeNode*)MALLOC64(sizeof(TreeNode) * PARTICLES * 2);
-	InitLens();
-	BuildTree();
+	Surface* reference = new Surface( "assets/image3.png" );
+	backup = new Surface( SCRWIDTH, SCRHEIGHT );
+	ref8 = (int*)MALLOC64( SCRWIDTH * SCRHEIGHT * 8 );
+	for (int i = 0; i < (SCRWIDTH * SCRHEIGHT); i++) ref8[i] = reference->GetBuffer()[i] & 255;
+	fitness = 512 * 512 * 16;
 }
 
-void Game::Tick(float a_DT)
+// -----------------------------------------------------------
+// Application termination
+// Save the current generation, so we can continue later.
+// -----------------------------------------------------------
+void Game::Shutdown()
 {
-	int start = GetTickCount();
-	screen->Clear(0);
-	Pixel* bptr = back.GetBuffer();
-	ikea.CopyTo(&back, 0, 0);
-	if (GetAsyncKeyState(VK_LEFT)) { r -= 1.8f; if (r < 0) r += 360; }
-	if (GetAsyncKeyState(VK_RIGHT)) { r += 1.8f; if (r > 360) r -= 360; }
-	if (GetAsyncKeyState(VK_UP)) { r2 -= 1.8f; if (r2 < 0) r2 += 360; }
-	if (GetAsyncKeyState(VK_DOWN)) { r2 += 1.8f; if (r2 > 360) r2 -= 360; }
-	float sinr = sin(r * PI / 180);
-	float cosr = cos(r * PI / 180);
-	float sinr2 = sin(r2 * PI / 180);
-	float cosr2 = cos(r2 * PI / 180);
-	// verlet: update positions, apply forces
-	for (int j = 0; j < 2; j++)
+	FILE* f = fopen( LINEFILE, "wb" );
+	fwrite( lx1, 4, LINES, f );
+	fwrite( ly1, 4, LINES, f );
+	fwrite( lx2, 4, LINES, f );
+	fwrite( ly2, 4, LINES, f );
+	fclose( f );
+}
+
+// -----------------------------------------------------------
+// Main application tick function
+// -----------------------------------------------------------
+void Game::Tick( float _DT )
+{
+	tm.reset();
+	int lineCount = 0;
+	int iterCount = 0;
+	// draw up to lidx
+	memset( screen->GetBuffer(), 255, SCRWIDTH * SCRHEIGHT * 4 );
+	for (int j = 0; j < lidx; j++, lineCount++)
 	{
-		for (int i = 0; i < PARTICLES; i++)
+		unsigned int c = (j * 128) / LINES;
+		DrawWuLine( screen, lx1[j], ly1[j], lx2[j], ly2[j], c + (c << 8) + (c << 16) );
+	}
+	int base = lidx;
+	screen->CopyTo( backup, 0, 0 );
+	// iterate and draw from lidx to end
+	for (int k = 0; k < ITERATIONS; k++)
+	{
+		memcpy( screen->GetBuffer(), backup->GetBuffer(), SCRWIDTH * SCRHEIGHT * 4 );
+		MutateLine( lidx );
+		for (int j = base; j < LINES; j++, lineCount++)
 		{
-			Tmpl8::vec3 _p = p[i];
-			p[i] += (p[i] - l[i]) - Tmpl8::vec3(-0.015f * cosr2, -0.015f * sinr2, 0);
-			l[i] = _p;
+			unsigned int c = (j * 128) / LINES;
+			DrawWuLine( screen, lx1[j], ly1[j], lx2[j], ly2[j], c + (c << 8) + (c << 16) );
 		}
-		// verlet: satisfy constraints
-		BuildTree();
-#pragma omp parallel for schedule(dynamic,4096)
-		for (int i = 0; i < PARTICLES; i++)
-		{
-			TreeNode* node = root;
-			TreeNode* stack[64];
-			int stackptr = 0;
-			while (1)
-			{
-				if (node->left)
-				{
-					int axis = node->axis;
-					if ((p[i].cell[axis] - 2 * BALLRADIUS) < node->splitpos)
-					{
-						if ((p[i].cell[axis] + 2 * BALLRADIUS) > node->splitpos) stack[stackptr++] = node->left + 1;
-						node = node->left;
-					}
-					else if ((p[i].cell[axis] + 2 * BALLRADIUS) > node->splitpos) node = node->left + 1;
-					continue;
-				}
-				else
-				{
-					// move away from other balls
-					for (int k = 0; k < node->count; k++)
-					{
-						const int idx = pidx[node->first + k];
-						if (idx <= i) continue;
-						const Tmpl8::vec3 d = p[idx] - p[i];
-						const float dist = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
-						const float mindist = pr[i] + pr[idx];
-						if (dist < mindist)
-						{
-							const float intrusion = mindist - dist;
-							const float il = 0.5f / dist;
-							const Tmpl8::vec3 m = d * intrusion * il;
-							p[idx] += m, p[i] -= m;
-						}
-					}
-				}
-				if (!stackptr) break;
-				node = stack[--stackptr];
-			}
-			// keep away from  mouse object
-			Tmpl8::vec3 mpos(gmin.x + ((float)mx / SCRWIDTH) * (gmax.x - gmin.x),
-				-gmin.y + ((float)my / SCRHEIGHT) * (gmin.y + gmin.y),
-				0);
-			for (int a = 0; a < 3; a++)
-			{
-				mpos.cell[a] = (mpos.cell[a] < gmin.cell[a]) ? gmin.cell[a] : mpos.cell[a];
-				mpos.cell[a] = (mpos.cell[a] > gmax.cell[a]) ? gmax.cell[a] : mpos.cell[a];
-			}
-			const Tmpl8::vec3 d = mpos - p[i];
-			const float dist = d.x * d.x + d.y * d.y;
-			const float mindist = pr[i] + 15;
-			if (dist < (mindist * mindist))
-			{
-				const float l = fastsqrtf(dist);
-				const float intrusion = mindist - l;
-				const float il = 1.0f / l;
-				const Tmpl8::vec3 m = d * intrusion * il;
-				p[i] -= m;
-			}
-			// keep away from floor and sides
-			for (int a = 0; a < 3; a++)
-			{
-				if ((p[i].cell[a] - pr[i]) < gmin.cell[a]) p[i].cell[a] = gmin.cell[a] + pr[i];
-				if ((p[i].cell[a] + pr[i]) > gmax.cell[a]) p[i].cell[a] = gmax.cell[a] - pr[i];
-			}
-		}
+		int diff = Evaluate();
+		if (diff < fitness) fitness = diff; else UndoMutation( lidx );
+		lidx = (lidx + 1) % LINES;
+		iterCount++;
 	}
-	// add to sort array
-	for (int i = 0; i < PARTICLES; i++)
-	{
-		const float rx = p[i].x * sinr + p[i].z * cosr;
-		const float rz = p[i].x * cosr - p[i].z * sinr;
-		const float frx = rx * sinr2 + p[i].y * cosr2;
-		const float fry = rx * cosr2 - p[i].y * sinr2;
-		pt[i] = Tmpl8::vec3(frx, fry, rz);
-		source[i << 1] = (int)(100 * (500 - rz));
-		source[(i << 1) + 1] = i;
-	}
-	Sort();
-	// render
-	for (int i = 0; i < PARTICLES; i++)
-	{
-		int idx = source[(i << 1) + 1];
-		const float reciz = 1.0f / (pt[idx].z + 500);
-		const int sx = (int)((pt[idx].x * 2000) * reciz + SCRWIDTH / 2);
-		int sy = (int)(SCRHEIGHT / 2 - (pt[idx].y * 2000) * reciz);
-		sprite[idx & 3]->Draw(&back, sx - 8, sy - 8);
-	}
-	// finalize
-	back.CopyTo(screen, 0, 0);
-	int elapsed = GetTickCount() - start;
-	char t[64];
-	sprintf(t, "%i ms", elapsed);
-	Pixel* b = screen->GetBuffer();
-	memset(b, 0, 4 * 1024);
-	for (int i = 0; i < 10; i++) memset(b + i * screen->GetPitch(), 0, 50 * 4);
-	screen->Print(t, 8, 1, 0xffffff);
-	if ((mx >= 0) && (mx < SCRWIDTH)) screen->Line(mx, 0, mx, SCRHEIGHT - 1, 0xff0000);
-	if ((my >= 0) && (my < SCRHEIGHT)) screen->Line(0, my, SCRWIDTH - 1, my, 0xff0000);
+	// stats
+	char t[128];
+	float elapsed = tm.elapsed();
+	float lps = (float)lineCount / elapsed;
+	peak = max( lps, peak );
+	sprintf( t, "fitness: %i", fitness );
+	screen->Bar( 0, SCRHEIGHT - 33, 100, SCRHEIGHT - 1, 0 );
+	screen->Print( t, 2, SCRHEIGHT - 24, 0xffffff );
+	sprintf( t, "lps:     %5.2fK", lps );
+	screen->Print( t, 2, SCRHEIGHT - 16, 0xffffff );
+	sprintf( t, "ips:     %5.2f", (iterCount * 1000) / elapsed );
+	screen->Print( t, 2, SCRHEIGHT - 8, 0xffffff );
+	sprintf( t, "peak:    %5.2f", peak );
+	screen->Print( t, 2, SCRHEIGHT - 32, 0xffffff );
 }

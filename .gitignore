@@ -3,4 +3,7 @@ Debug/
 Release/
 x64/
 .vs/
+.idea/
+.vscode/
+cmake-build-debug/
 lib/
