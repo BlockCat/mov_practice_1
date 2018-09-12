@@ -6,7 +6,8 @@ How to make it work under linux (similar steps for OSX):
 
 0a) Download the dll folder from: http://www.cs.uu.nl/docs/vakken/mov/
 0b) Preferably download the dll from: http://www.cs.uu.nl/docs/vakken/mov/2017/files/LinuxMacWin.zip
-
+* Just copy over the lib folder
+ 0.5) Also copy over the assets folder to where the build executable is placed.
 
 -- From here it will be official again
 1) Install necessary libraries like cmake (try to get version 3.4 or higher), glew, glm, sdl2, freeimage, etc:
